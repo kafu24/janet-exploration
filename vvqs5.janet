@@ -1,5 +1,4 @@
-(import ./helper :prefix "" :exit true)
-(start-suite 0)
+(import ./helper :prefix "" :exit false)
 
 # ExprC
 (defn numC [n]
@@ -9,7 +8,7 @@
   {:s s})
 
 (defn idC [sym]
-  {:s sym})
+  {:id sym})
 
 (defn appC [fun args]
   {:fun fun :args args})
@@ -70,23 +69,16 @@
       ~{:ws (set " \t\r\f\n\0\v")
         :symchars (+ (range "09" "AZ" "az" "\x80\xFF") (set "!$%&*+-./:<?=>@^_"))
         :token (some :symchars)
-        :hex (range "09" "af" "AF")
-        :escape (* "\\" (+ (set "ntrzfev0\"\\")
-                       (* "x" :hex :hex)
-                       (* "u" [4 :hex])
-                       (* "U" [6 :hex])
-                       (error (constant "bad escape"))))
-        :bytes (* "\"" (any (+ :escape (if-not "\"" 1))) "\"")
-        #:string (/ :bytes ,string)
+        :symbol (/ ':token ,idC)
         :string (/ (* `"` (<- (any (if-not `"` 1))) `"`) ,stringC)
         :number (/ (number (some (+ :d (set ".-+")))) ,numC)
-        :raw-value (+ :number :string :app)
+        :raw-value (+ :number :string :symbol :app)
         :value (* (any :ws) :raw-value (any :ws))
         :root (any :value)
         :app (* "{" :root (+ "}" (error "")))
         :main :root})
     str))
 
-(assert (parser "\"abc\"") @[{:s "abc"}])
-
-(end-suite)
+(assert (= (get (parser "5") 0) {:n 5}))
+(assert (= (get (parser "\"abc\"") 0) {:s "abc"}))
+(assert (= (get (parser "test") 0) {:id "test"}))
