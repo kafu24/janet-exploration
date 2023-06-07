@@ -10,14 +10,15 @@
 (defn idC [sym]
   {:id sym})
 
-(defn appC [fun args]
+(defn appC [fun &opt args]
+  (default args {})
   {:fun fun :args args})
 
 (defn LamC [args body]
   {:args args :body body})
 
-(defn ifC [test then else]
-  {:test test :then then :else else})
+(defn ifC [then test else]
+  {:then then :test test :else else})
 
 # Values
 (defn NumV [n]
@@ -63,22 +64,33 @@
 (printf "testing serialize ill make top later")
 (serialize (interp test-num-c))
 
-(defn parser [str]
+
+(defn parser [text]
+  "Peg for compiling VVQS5 into a Janet source ast"
   (peg/match
     (peg/compile
       ~{:ws (set " \t\r\f\n\0\v")
         :symchars (+ (range "09" "AZ" "az" "\x80\xFF") (set "!$%&*+-./:<?=>@^_"))
         :token (some :symchars)
         :symbol (/ ':token ,idC)
-        :string (/ (* `"` (<- (any (if-not `"` 1))) `"`) ,stringC)
+        :hex (range "09" "af" "AF")
+        :escape (* "\\" (+ (set "ntrvzf0e\"\\")
+                        (* "x" :hex :hex)
+                        (error (constant "bad hex escape"))))
         :number (/ (number (some (+ :d (set ".-+")))) ,numC)
-        :raw-value (+ :number :string :symbol :app)
+        :bytes (* "\"" (any (+ :escape (if-not "\"" 1))) "\"")
+        :string (/ ':bytes ,stringC)
+        :raw-value (+ :number :string :symbol :if :app)
         :value (* (any :ws) :raw-value (any :ws))
         :root (any :value)
-        :app (* "{" :root (+ "}" (error "")))
+        :if (/ (* "{" :value "if" :value "else" :value (+ "}" (error ""))) ,ifC)
+        :app (/ (* "{" :value (group (any :root)) (+ "}" (error ""))) ,appC)
         :main :root})
-    str))
+    text))
 
-(assert (= (get (parser "5") 0) {:n 5}))
-(assert (= (get (parser "\"abc\"") 0) {:s "abc"}))
-(assert (= (get (parser "test") 0) {:id "test"}))
+(assert (= ((parser "5") 0) {:n 5}))
+(assert (= ((parser "\"abc\"") 0) {:s "\"abc\""}))
+(assert (= ((parser "test") 0) {:id "test"}))
+(assert (= ((parser "{10 if 15 else 100}") 0) {:test {:n 15} :then {:n 10} :else {:n 100}}))
+(assert (deep= ((parser "{5}") 0) {:fun {:n 5} :args @[]}))
+(assert (deep= ((parser "{f 1 2 3}") 0) {:fun {:id "f"} :args @[{:n 1} {:n 2} {:n 3}]}))
