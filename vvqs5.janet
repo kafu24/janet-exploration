@@ -39,18 +39,37 @@
 (defn ErrorV [any]
   {:any any})
 
-# environment
+# Environment
 (defn Binding [sym val]
   {:sym sym :val val})
 
-(def empty-env {})
+(def empty-env @[])
 
-(def top-env @[(Binding "+" (PrimopV '+))
-               (Binding "-" (PrimopV '-))
-               (Binding "*" (PrimopV '*))
-               (Binding "/" (PrimopV '/))
-               (Binding "<=" (PrimopV '<=))
-               (Binding "equal?" (PrimopV 'equal?))])
+(def top-env @[(Binding (idC "+") (PrimopV '+))
+               (Binding (idC "-") (PrimopV '-))
+               (Binding (idC "*") (PrimopV '*))
+               (Binding (idC "/") (PrimopV '/))
+               (Binding (idC "<=") (PrimopV '<=))
+               (Binding (idC "equal?") (PrimopV 'equal?))
+               (Binding (idC "true") (BoolV true))
+               (Binding (idC "false") (BoolV false))])
+
+(defn where [fun combined]
+  "Convert where into AppC and LamC. fun is the body for LamC. For combined,
+  all the even index combined is the args for LamC. All the
+  odd index is the args for AppC."
+  (def lamC-args @[])
+  (def appC-args @[])
+  (var n 0)
+  (each i combined
+    (if (= n 0)
+      (do
+        (set n 1)
+        (array/push lamC-args i))
+      (do
+        (set n 0)
+        (array/push appC-args i))))
+  (appC (lamC lamC-args fun) appC-args))
 
 (defn parser [text]
   "Not really a parser, can just recognise some VVQS5 source code."
@@ -73,14 +92,15 @@
         :number (/ (number (some (+ :d (set ".-+")))) ,numC)
         :bytes (* "\"" (any (+ :escape (if-not "\"" 1))) "\"")
         :string (/ ':bytes ,stringC)
-        :raw-value (+ :number :string :symbol :lam :if :app)
+        :raw-value (+ :number :string :symbol :lam :if :where :app)
         :value (* (any :ws) :raw-value (any :ws))
         :id (* (any :ws) :symbol (any :ws))
+        :assign (* (any :ws) "[" :id ":=" :value (+ "]" (error "assign")) (any :ws))
         :root (any :value)
         :root2 (any :id)
         :if (/ (* "{" :value "if" :value "else" :value (+ "}" (error "if"))) ,ifC)
         :lam (/ (* "{" "{" (group (any :root2)) (+ "}" (error "lam")) (any :ws) "=>" :value (+ "}" (error "lam"))) ,lamC)
-        #:where (/ (* "{" :value "where" "{" (group (any "[" ""]"}"))
+        :where (/ (* "{" :value "where" (any :ws) "{" (group (some :assign)) (+ "}" (error "lam")) (any :ws) (+ "}" (error "lam"))) ,where)
         :app (/ (* "{" :value (group (any :root)) (+ "}" (error "app"))) ,appC)
         :main :root})
     text))
@@ -95,16 +115,11 @@
     nil (error "symbol not found"))
   result)
 
-(defn binder [args funs]
-  "Used in ClosV interp match case. Return an array with bindings
-   from args to funs sequentially."
-  )
-
 (defn interp [exp env]
   "Takes an ExprC and an Env to evalute it to a Value"
     (match exp
       {:n n} (NumV n) 
-      {:id sym} (lookup sym env)
+      {:id sym} (lookup exp env)
       {:str s} (StringV s) 
       {:args args :body body} (ClosV args body env)
       # currently not using lookup this is just straight matching
@@ -114,15 +129,19 @@
           (match func
            {:op op} # PrimV
             (match op
-              (@ '+) (NumV (+ (get (get args 0) :n) (get (get args 1) :n)))
-              (@ '-) (NumV (- (get (get args 0) :n) (get (get args 1) :n)))
-              (@ '*) (NumV (* (get (get args 0) :n) (get (get args 1) :n)))
-              (@ '/) (NumV (/ (get (get args 0) :n) (get (get args 1) :n)))
-              (@ '<=) (BoolV (<= (get (get args 0) :n) (get (get args 1) :n)))
-              (@ 'equal?) (BoolV (= (get (get args 0) :n) (get (get args 1) :n))))
-          #{:args a :body b :env e} # CloV
-          #  (do)
-           ))
+              (@ '+) (NumV (+ (get (interp (args 0) env) :n) (get (interp (args 1) env) :n)))
+              (@ '-) (NumV (- (get (interp (args 0) env) :n) (get (interp (args 1) env) :n)))
+              (@ '*) (NumV (* (get (interp (args 0) env) :n) (get (interp (args 1) env) :n)))
+              (@ '/) (NumV (/ (get (interp (args 0) env) :n) (get (interp (args 1) env) :n)))
+              (@ '<=) (BoolV (<= (get (interp (args 0) env) :n) (get (interp (args 1) env) :n)))
+              (@ 'equal?) (BoolV (= (get (interp (args 0) env) :n) (get (interp (get args 1) env) :n))))
+          {:args cargs :body cbody :env cenv} # CloV
+            (do
+              (def expected-len (length cargs))
+              (def actual-len (length args))
+              (if (= false (= expected-len actual-len))
+                (error "interp: VVQS unexpected number of arguments found"))
+              (interp cbody (array/concat (map Binding cargs (map (fn [x] (interp x env)) args)) cenv)))))
       {:then then :test test :else else}
         (do
           (def condition (interp test env))
@@ -137,11 +156,8 @@
     {:n n}  (string n)
     {:s s} (string s)
     {:bool bool} (string bool)
-    {:op op} (string "#<primop>") # not done
-    {:args args :body body :env env} (string "#<procedure>") # not done
- 
-    )
-  )
+    {:op op} "#<primop>"
+    {:args args :body body :env env} "#<procedure>"))
 
 (defn top-interp [text]
   (serialize (interp ((parser text) 0) top-env)))
@@ -154,6 +170,17 @@
 (assert (= (top-interp "{<= 2 12}") "true"))
 (assert (= (top-interp "{<= 22 12}") "false"))
 (assert (= (top-interp "{equal? 12 12}") "true"))
+(assert (= (top-interp 
+            "{{{fir sec} => {{{f a} => {{fir f} {{sec f} a}}} {{x} => {+ x x}} 5}}
+              {{f} => {{a} => {f a}}}
+              {{g} => {{a} => {g {g a}}}}}")
+           "40"))
+(assert-error "interp: VVQS unexpected number of arguments found"
+              (top-interp "{{{x y} => x} 1}"))
+(assert (= "{{fact fact 12}
+             where
+             {[fact := {{self x} => {1 if {<= x 0} else {* x {self self {- x 1}}}}}]}}")
+           "479001600")
 
 # Parse tests
 (assert (= ((parser "5") 0) {:n 5}))
