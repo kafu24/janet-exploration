@@ -191,3 +191,5 @@
 (assert (deep= ((parser "{f 1 2 3}") 0) {:fun {:id "f"} :args @[{:n 1} {:n 2} {:n 3}]}))
 (assert (deep= ((parser "{{x y z} => {+ x 5}}") 0)
   {:args @[{:id "x"} {:id "y"} {:id "z"}] :body {:fun {:id "+"} :args @[{:id "x"} {:n 5}]}}))
+(assert (deep= ((parser "{{+ x y} where {[x := 7] [y := 4]}}") 0)
+  {:args @[{:n 7} {:n 4}] :fun {:args @[{:id "x"} {:id "y"}] :body {:args @[{:id "x"} {:id "y"}] :fun {:id "+"}}}}))
