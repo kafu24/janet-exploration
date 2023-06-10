@@ -177,10 +177,11 @@
            "40"))
 (assert-error "interp: VVQS unexpected number of arguments found"
               (top-interp "{{{x y} => x} 1}"))
-(assert (= "{{fact fact 12}
-             where
-             {[fact := {{self x} => {1 if {<= x 0} else {* x {self self {- x 1}}}}}]}}")
-           "479001600")
+(assert (= (top-interp 
+            "{{fact fact 12}
+              where
+              {[fact := {{self x} => {1 if {<= x 0} else {* x {self self {- x 1}}}}}]}}")
+           "479001600"))
 
 # Parse tests
 (assert (= ((parser "5") 0) {:n 5}))
